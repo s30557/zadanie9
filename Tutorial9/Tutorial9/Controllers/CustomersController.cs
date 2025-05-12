@@ -35,4 +35,23 @@ public class CustomersController : ControllerBase
             return StatusCode(500, new { message = ex.Message });
         }
     }
+    
+    [HttpPost("{id}/rentals")]
+    public async Task<IActionResult> AddRental(int id, [FromBody] dynamic rentalData)
+    {
+        try
+        {
+            bool success = await _rentalService.AddRentalAsync(id, rentalData);
+
+            if (!success)
+                return BadRequest(new { message = "Niepoprawne dane: brak klienta lub filmu." });
+
+            return Ok(new { message = "Wypożyczenie dodane poprawnie." });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = "Wystąpił błąd serwera.", details = ex.Message });
+        }
+    }
+
 }

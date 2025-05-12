@@ -86,4 +86,79 @@ public class CustomerRentalService
             throw new ApplicationException("Błąd podczas pobierania danych klienta.", ex);
         }
     }
+    
+    public async Task<bool> AddRentalAsync(int customerId, dynamic rentalData)
+{
+    try
+    {
+        using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        using var transaction = connection.BeginTransaction();
+
+        // Sprawdź czy klient istnieje
+        var checkCustomerCmd = new SqlCommand("SELECT COUNT(*) FROM Customer WHERE customer_id = @id", connection, transaction);
+        checkCustomerCmd.Parameters.AddWithValue("@id", customerId);
+
+        var customerExists = (int)await checkCustomerCmd.ExecuteScalarAsync() > 0;
+        if (!customerExists)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        // Sprawdź czy wszystkie filmy istnieją
+        foreach (var movie in rentalData.movies)
+        {
+            var checkMovieCmd = new SqlCommand("SELECT COUNT(*) FROM Movie WHERE title = @title", connection, transaction);
+            checkMovieCmd.Parameters.AddWithValue("@title", (string)movie.title);
+
+            var movieExists = (int)await checkMovieCmd.ExecuteScalarAsync() > 0;
+            if (!movieExists)
+            {
+                transaction.Rollback();
+                return false;
+            }
+        }
+
+        // Dodaj wpis do Rental
+        var insertRentalCmd = new SqlCommand(@"
+            INSERT INTO Rental (rental_id, rental_date, customer_id, status_id)
+            VALUES (@id, @date, @customer_id, @status_id)", connection, transaction);
+        insertRentalCmd.Parameters.AddWithValue("@id", (int)rentalData.id);
+        insertRentalCmd.Parameters.AddWithValue("@date", (DateTime)rentalData.rentalDate);
+        insertRentalCmd.Parameters.AddWithValue("@customer_id", customerId);
+        insertRentalCmd.Parameters.AddWithValue("@status_id", 1); // zakładamy "1 = Rented"
+
+        await insertRentalCmd.ExecuteNonQueryAsync();
+
+        // Dodaj wpisy do Rental_Item
+        foreach (var movie in rentalData.movies)
+        {
+            // Pobierz movie_id
+            var getMovieIdCmd = new SqlCommand("SELECT movie_id FROM Movie WHERE title = @title", connection, transaction);
+            getMovieIdCmd.Parameters.AddWithValue("@title", (string)movie.title);
+            var movieId = (int)(await getMovieIdCmd.ExecuteScalarAsync());
+
+            var insertItemCmd = new SqlCommand(@"
+                INSERT INTO Rental_Item (rental_id, movie_id, price_at_rental)
+                VALUES (@rental_id, @movie_id, @price)", connection, transaction);
+            insertItemCmd.Parameters.AddWithValue("@rental_id", (int)rentalData.id);
+            insertItemCmd.Parameters.AddWithValue("@movie_id", movieId);
+            insertItemCmd.Parameters.AddWithValue("@price", (decimal)movie.rentalPrice);
+
+            await insertItemCmd.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
+        return true;
+    }
+    catch (Exception ex)
+    {
+            // Loguj jeśli trzeba
+        return false;
+    }
+}
+
+    
 }
